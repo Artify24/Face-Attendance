@@ -1,0 +1,43 @@
+@app.post("/generate-embedding")
+async def generate_embedding(
+    request: Request,
+    content_type: str = Header(default="application/octet-stream")
+):
+    try:
+        # 1. Validate input
+        if not content_type.startswith(("image/", "application/octet-stream")):
+            raise HTTPException(400, "Content-Type must be image/* or application/octet-stream")
+
+        # 2. Process image
+        contents = await request.body()
+        if len(contents) > 5 * 1024 * 1024:
+            raise HTTPException(413, "Image too large (max 5MB)")
+            
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            raise HTTPException(400, "Invalid image format (supported: JPEG, PNG, etc.)")
+
+        # 3. Face detection
+        faces = model.get(img)
+        if not faces:
+            raise HTTPException(400, "No face detected - ensure clear frontal face")
+        if len(faces) > 1:
+            raise HTTPException(400, "Multiple faces detected - submit one face only")
+
+        # 4. Generate embedding
+        embedding = faces[0].embedding
+        embedding = embedding / np.linalg.norm(embedding)  # Normalize
+
+        return {
+            "success": True,
+            "embedding": embedding.tolist(),
+            "face_quality": float(faces[0].det_score)  # Confidence score
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Face processing error: {str(e)}")
+    
